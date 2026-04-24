@@ -44,18 +44,34 @@ start_date = st.date_input("Start Date", pd.to_datetime("2018-01-01"))
 end_date = st.date_input("End Date", pd.to_datetime("today"))
 
 # -----------------------------
-# SAFE DATA LOADER
+# SAFE DATA LOADER (FIXED)
 # -----------------------------
 def load_data(ticker):
     for _ in range(3):
         try:
-            df = yf.download(ticker, start=start_date, end=end_date, progress=False)
+            df = yf.download(
+                ticker,
+                start=start_date,
+                end=end_date,
+                progress=False
+            )
 
             if df is not None and not df.empty:
+
+                # FIX MULTIINDEX ISSUE
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+
                 df = df.reset_index()
 
-                # ensure clean columns
-                df.columns = [str(c) for c in df.columns]
+                # CLEAN COLUMN NAMES
+                df.columns = [str(col).strip().title() for col in df.columns]
+
+                # ENSURE REQUIRED COLUMNS EXIST
+                required = ["Date", "Open", "High", "Low", "Close"]
+                for col in required:
+                    if col not in df.columns:
+                        return pd.DataFrame()
 
                 return df.dropna()
 
@@ -65,7 +81,7 @@ def load_data(ticker):
     return pd.DataFrame()
 
 # -----------------------------
-# MAIN
+# MAIN APP
 # -----------------------------
 if st.button("🔮 Predict Next 7 Days"):
 
@@ -137,7 +153,7 @@ if st.button("🔮 Predict Next 7 Days"):
     st.info(get_sentiment())
 
     # -----------------------------
-    # BUY / SELL (SAFE)
+    # BUY / SELL
     # -----------------------------
     future_mean = float(np.mean(pred_df["Close"]))
 
