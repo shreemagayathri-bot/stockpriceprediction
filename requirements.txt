@@ -5,4 +5,3 @@ numpy
 matplotlib
 scikit-learn
 joblib
-tensorflow-cpu==2.15.0
