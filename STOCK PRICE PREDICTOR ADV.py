@@ -94,10 +94,21 @@ y_pred = model.predict(X_test)
 # INVERSE TRANSFORM FIX
 # -------------------------
 def inverse_transform(data):
+    data = np.array(data)
+
+    # ensure correct shape (n_samples, 4)
+    if len(data.shape) == 1:
+        data = data.reshape(-1, 4)
+
     return scaler.inverse_transform(data)
 
 y_test_inv = inverse_transform(y_test.reshape(-1, len(FEATURES)))
-y_pred_inv = inverse_transform(y_pred)
+y_pred = np.array(y_pred)
+
+# reshape safety
+y_pred = y_pred.reshape(-1, 4)
+
+y_pred_inv = scaler.inverse_transform(y_pred)
 
 rmse = math.sqrt(mean_squared_error(y_test_inv, y_pred_inv))
 st.subheader(f"📊 RMSE: {rmse:.2f}")

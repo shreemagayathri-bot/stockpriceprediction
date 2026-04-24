@@ -6,15 +6,16 @@ import matplotlib.pyplot as plt
 import joblib
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
 import math
 from datetime import timedelta
+import os
+import time
 
 # -----------------------------
 # PAGE CONFIG
 # -----------------------------
 st.set_page_config(
-    page_title="Stock Predictor",
+    page_title="Stock Predictor ADV",
     page_icon="🔮",
     layout="wide"
 )
@@ -26,19 +27,20 @@ SEQ_LEN = 60
 PRED_DAYS = 7
 FEATURES = ["Open", "High", "Low", "Close"]
 
-# ⚠️ SAFE MODEL LOADING (NO TENSORFLOW)
-MODEL_PATH = "model.pkl"      # <-- you must replace or train sklearn model
-SCALER_PATH = "scaler_minmax.save "
+SCALER_PATH = "scaler_minmax.save"   # ✅ FIXED (NO EXTRA SPACE)
 
 # -----------------------------
-# LOAD SCALER ONLY (SAFE)
+# LOAD SCALER SAFELY
 # -----------------------------
 @st.cache_resource
-def load_resources():
-    scaler = joblib.load(SCALER_PATH)
-    return scaler
+def load_scaler():
+    if not os.path.exists(SCALER_PATH):
+        st.error("❌ scaler_minmax.save file missing in GitHub repo")
+        st.stop()
 
-scaler = load_resources()
+    return joblib.load(SCALER_PATH)
+
+scaler = load_scaler()
 
 # -----------------------------
 # SENTIMENT
@@ -49,35 +51,51 @@ def get_sentiment():
 # -----------------------------
 # UI
 # -----------------------------
-st.title("🔮 Advanced Stock Predictor (Streamlit Safe Version)")
-st.write("Now fully deployable without TensorFlow crashes 🚀")
+st.title("🔮 Advanced Stock Predictor (Streamlit Safe)")
+st.write("No TensorFlow | No crashes | Cloud ready 🚀")
 
 st.markdown("---")
 
 col1, col2 = st.columns(2)
+
 with col1:
-    ticker = st.text_input("Stock Symbol", "AAPL")
+    ticker = st.text_input("Stock Symbol", "AAPL")   # ✅ FIXED
+
 with col2:
-    st.write("Examples: AAPL, TSLA, MSFT, RELIANCE.NS")
+    st.write("Examples: AAPL, TSLA, MSFT, INFY.NS")
 
 start_date = st.date_input("Start Date", pd.to_datetime("2018-01-01"))
 end_date = st.date_input("End Date", pd.to_datetime("today"))
 
 # -----------------------------
-# PREDICT BUTTON
+# SAFE DOWNLOAD
+# -----------------------------
+def load_data(ticker):
+    for _ in range(3):
+        try:
+            df = yf.download(ticker, start=start_date, end=end_date, progress=False)
+            if df is not None and not df.empty:
+                df = df.reset_index()
+                return df
+        except:
+            time.sleep(2)
+    return pd.DataFrame()
+
+# -----------------------------
+# MAIN BUTTON
 # -----------------------------
 if st.button("🔮 Predict Next 7 Days"):
 
-    df = yf.download(ticker, start=start_date, end=end_date)
+    df = load_data(ticker)
 
     if df.empty:
-        st.error("No data found")
+        st.error("❌ No data found. Try AAPL, TSLA, MSFT, INFY.NS")
         st.stop()
 
-    data = df[FEATURES].dropna().reset_index()
+    data = df.copy()
 
     # -----------------------------
-    # TECHNICAL INDICATORS
+    # TECH INDICATORS
     # -----------------------------
     data["MA10"] = data["Close"].rolling(10).mean()
 
@@ -93,39 +111,29 @@ if st.button("🔮 Predict Next 7 Days"):
     # CURRENT INFO
     # -----------------------------
     st.subheader("📊 Current Info")
-    col1, col2 = st.columns(2)
-    col1.metric("Price", round(data["Close"].iloc[-1], 2))
-    col2.metric("RSI", round(data["RSI"].iloc[-1], 2))
+
+    c1, c2 = st.columns(2)
+    c1.metric("Price", round(data["Close"].iloc[-1], 2))
+    c2.metric("RSI", round(data["RSI"].iloc[-1], 2))
 
     # -----------------------------
-    # SCALE DATA
-    # -----------------------------
-    scaled = scaler.transform(data[FEATURES].values)
-
-    if len(scaled) < SEQ_LEN:
-        st.error("Need at least 60 days data")
-        st.stop()
-
-    # -----------------------------
-    # ❌ NO LSTM MODEL (SAFE FALLBACK)
-    # Instead: simple trend-based prediction
+    # TREND BASED PREDICTION
     # -----------------------------
     last_close = data["Close"].iloc[-1]
-
     trend = np.mean(np.diff(data["Close"].tail(10)))
 
     future_prices = []
     price = last_close
 
-    for i in range(PRED_DAYS):
-        price = price + trend
+    for _ in range(PRED_DAYS):
+        price += trend
         future_prices.append(price)
 
     # -----------------------------
-    # CREATE PRED DF
+    # FUTURE DATES
     # -----------------------------
     last_date = data["Date"].iloc[-1]
-    dates = pd.date_range(last_date + timedelta(days=1), periods=PRED_DAYS, freq="B")
+    dates = pd.date_range(start=last_date + timedelta(days=1), periods=PRED_DAYS, freq="B")
 
     pred_df = pd.DataFrame({
         "Date": dates,
@@ -139,34 +147,23 @@ if st.button("🔮 Predict Next 7 Days"):
     st.info(get_sentiment())
 
     # -----------------------------
-    # TREND
+    # BUY / SELL
     # -----------------------------
-    st.subheader("📈 Trend")
-    if pred_df["Close"].iloc[-1] > last_close:
-        st.success("Bullish 📈")
+    if pred_df["Close"].mean() > last_close:
+        st.success("📈 BUY Signal")
     else:
-        st.error("Bearish 📉")
-
-    # -----------------------------
-    # BUY/SELL
-    # -----------------------------
-    avg_future = pred_df["Close"].mean()
-
-    if avg_future > last_close:
-        st.success("BUY 📈")
-    else:
-        st.error("SELL 📉")
+        st.error("📉 SELL Signal")
 
     # -----------------------------
     # DOWNLOAD
     # -----------------------------
     csv = pred_df.to_csv(index=False).encode()
-    st.download_button("Download", csv, "pred.csv")
+    st.download_button("📥 Download Prediction", csv, "prediction.csv")
 
     # -----------------------------
-    # PLOT
+    # PLOT PREDICTION
     # -----------------------------
-    st.subheader("Prediction Chart")
+    st.subheader("📊 Prediction Chart")
 
     fig, ax = plt.subplots()
     ax.plot(data["Date"].tail(30), data["Close"].tail(30), label="Past")
@@ -177,6 +174,8 @@ if st.button("🔮 Predict Next 7 Days"):
     # -----------------------------
     # LINEAR REGRESSION
     # -----------------------------
+    st.subheader("📊 Model Comparison")
+
     X = np.arange(len(data)).reshape(-1, 1)
     y = data["Close"].values
 
@@ -186,15 +185,13 @@ if st.button("🔮 Predict Next 7 Days"):
     future_X = np.arange(len(data), len(data) + PRED_DAYS).reshape(-1, 1)
     lr_pred = lr.predict(future_X)
 
-    st.subheader("Model Comparison")
-
     fig2, ax2 = plt.subplots()
     ax2.plot(pred_df["Date"], pred_df["Close"], label="Trend Model")
     ax2.plot(pred_df["Date"], lr_pred, label="Linear Regression")
     ax2.legend()
     st.pyplot(fig2)
 
-    st.success("Done 🚀")
+    st.success("✅ Done Successfully!")
 
 else:
-    st.info("Enter stock and click Predict")
+    st.info("👆 Enter stock and click Predict")
