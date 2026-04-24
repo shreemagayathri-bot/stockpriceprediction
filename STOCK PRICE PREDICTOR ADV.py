@@ -1,8 +1,4 @@
-"""
-Deployable Multi-step Stock Predictor (NO TensorFlow)
-Predict next 7 days using RandomForest model
-"""
-
+import streamlit as st
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -11,118 +7,155 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
 import math
+import time
 
 # -------------------------
-# CONFIG
+# APP CONFIG
 # -------------------------
-TICKER = "AAPL"
+st.set_page_config(page_title="Stock Predictor", layout="wide")
+
+st.title("📈 Stock Price Predictor (7-Day Forecast)")
+st.write("RandomForest ML Model | No TensorFlow | Streamlit Cloud Safe")
+
+# -------------------------
+# USER INPUT
+# -------------------------
+TICKER = st.text_input("Enter Stock Ticker", "AAPL")
 START_DATE = "2018-01-01"
 SEQ_LEN = 60
 PRED_DAYS = 7
 FEATURES = ["Open", "High", "Low", "Close"]
 
 # -------------------------
-# LOAD DATA
+# SAFE DATA LOADER (ROBUST)
 # -------------------------
-df = yf.download(TICKER, start=START_DATE)
-df = df.reset_index()
+@st.cache_data
+def load_data(ticker):
+    for _ in range(3):  # retry system
+        try:
+            df = yf.download(ticker, start=START_DATE, progress=False)
 
-data = df[["Date"] + FEATURES].dropna().reset_index(drop=True)
+            if df is not None and not df.empty:
+                df = df.reset_index()
 
-print("Rows:", len(data))
+                data = df[["Date"] + FEATURES].copy()
+
+                # convert safely
+                for col in FEATURES:
+                    data[col] = pd.to_numeric(data[col], errors="coerce")
+
+                data = data.dropna().reset_index(drop=True)
+
+                if len(data) > 20:
+                    return data
+
+        except Exception:
+            time.sleep(2)
+
+    return None
+
+data = load_data(TICKER)
+
+# -------------------------
+# CHECK DATA
+# -------------------------
+if data is None:
+    st.error("❌ No data found. Try: AAPL, MSFT, TSLA, INFY.NS")
+    st.stop()
+
+st.success(f"✅ Data Loaded: {len(data)} rows")
+st.dataframe(data.tail())
 
 # -------------------------
 # SCALE DATA
 # -------------------------
 scaler = MinMaxScaler()
-scaled = scaler.fit_transform(data[FEATURES])
+scaled = scaler.fit_transform(data[FEATURES].values)
 
 # -------------------------
-# CREATE SEQUENCES
+# CREATE SEQUENCES (SAFE)
 # -------------------------
 def create_sequences(data, seq_len, pred_len):
     X, y = [], []
     for i in range(seq_len, len(data) - pred_len):
         X.append(data[i-seq_len:i].flatten())
-        y.append(data[i:i+pred_len].flatten())
+        y.append(data[i:i+pred_len])
     return np.array(X), np.array(y)
 
 X, y = create_sequences(scaled, SEQ_LEN, PRED_DAYS)
 
-print("X shape:", X.shape)
-print("y shape:", y.shape)
-
 # -------------------------
-# TRAIN TEST SPLIT
+# SPLIT DATA
 # -------------------------
 split = int(0.8 * len(X))
+
 X_train, X_test = X[:split], X[split:]
 y_train, y_test = y[:split], y[split:]
 
 # -------------------------
-# MODEL (NO TF)
+# MODEL
 # -------------------------
 model = RandomForestRegressor(
-    n_estimators=200,
+    n_estimators=150,
     random_state=42,
     n_jobs=-1
 )
 
-model.fit(X_train, y_train)
+model.fit(X_train, y_train.reshape(y_train.shape[0], -1))
 
 # -------------------------
-# PREDICT
+# PREDICTIONS
 # -------------------------
 y_pred = model.predict(X_test)
 
 # -------------------------
 # INVERSE TRANSFORM
 # -------------------------
-def invert(y, scaler):
-    y = y.reshape(-1, len(FEATURES))
-    return scaler.inverse_transform(y)
+def invert(y):
+    return scaler.inverse_transform(y.reshape(-1, len(FEATURES)))
 
-y_test_inv = invert(y_test, scaler)
-y_pred_inv = invert(y_pred, scaler)
+y_test_inv = invert(y_test.reshape(-1, len(FEATURES)))
+y_pred_inv = invert(y_pred)
 
 # -------------------------
 # RMSE
 # -------------------------
 rmse = math.sqrt(mean_squared_error(y_test_inv, y_pred_inv))
-print("RMSE:", rmse)
+st.subheader(f"📊 RMSE: {rmse:.2f}")
 
 # -------------------------
-# PLOT LAST SAMPLE
+# PLOT RESULTS
 # -------------------------
+st.subheader("📉 Actual vs Predicted")
+
 sample = -1
-actual = y_test_inv[sample].reshape(PRED_DAYS, len(FEATURES))
-pred = y_pred_inv[sample].reshape(PRED_DAYS, len(FEATURES))
+actual = y_test_inv.reshape(-1, PRED_DAYS, len(FEATURES))[sample]
+pred = y_pred_inv.reshape(-1, PRED_DAYS, len(FEATURES))[sample]
 
-dates = pd.date_range(end=data["Date"].iloc[-1], periods=PRED_DAYS)
+fig, ax = plt.subplots(2, 2, figsize=(12, 8))
 
-plt.figure(figsize=(12, 8))
 for i, col in enumerate(FEATURES):
-    plt.subplot(2, 2, i+1)
-    plt.plot(actual[:, i], label="Actual")
-    plt.plot(pred[:, i], label="Predicted")
-    plt.title(col)
-    plt.legend()
+    r, c = divmod(i, 2)
+    ax[r, c].plot(actual[:, i], label="Actual")
+    ax[r, c].plot(pred[:, i], label="Predicted")
+    ax[r, c].set_title(col)
+    ax[r, c].legend()
 
-plt.tight_layout()
-plt.show()
+st.pyplot(fig)
 
 # -------------------------
-# NEXT 7 DAYS PREDICTION
+# FUTURE PREDICTION
 # -------------------------
+st.subheader("🔮 Next 7 Days Prediction")
+
 last_window = scaled[-SEQ_LEN:].flatten().reshape(1, -1)
-next_pred = model.predict(last_window)
 
-next_pred = invert(next_pred, scaler).reshape(PRED_DAYS, len(FEATURES))
+next_pred = model.predict(last_window)
+next_pred = invert(next_pred).reshape(PRED_DAYS, len(FEATURES))
 
 future_dates = pd.date_range(start=data["Date"].iloc[-1], periods=PRED_DAYS)
 
 pred_df = pd.DataFrame(next_pred, columns=FEATURES)
 pred_df.insert(0, "Date", future_dates)
 
-print("\nNext 7 Days Prediction:")
-print(pred_df)
+st.dataframe(pred_df)
