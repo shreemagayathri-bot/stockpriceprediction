@@ -3,16 +3,12 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import joblib
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.linear_model import LinearRegression
-import math
 from datetime import timedelta
-import os
 import time
 
 # -----------------------------
-# PAGE CONFIG
+# CONFIG
 # -----------------------------
 st.set_page_config(
     page_title="Stock Predictor ADV",
@@ -20,27 +16,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# -----------------------------
-# CONFIG
-# -----------------------------
-SEQ_LEN = 60
 PRED_DAYS = 7
-FEATURES = ["Open", "High", "Low", "Close"]
-
-SCALER_PATH = "scaler_minmax.save"   # ✅ FIXED (NO EXTRA SPACE)
-
-# -----------------------------
-# LOAD SCALER SAFELY
-# -----------------------------
-@st.cache_resource
-def load_scaler():
-    if not os.path.exists(SCALER_PATH):
-        st.error("❌ scaler_minmax.save file missing in GitHub repo")
-        st.stop()
-
-    return joblib.load(SCALER_PATH)
-
-scaler = load_scaler()
 
 # -----------------------------
 # SENTIMENT
@@ -51,15 +27,15 @@ def get_sentiment():
 # -----------------------------
 # UI
 # -----------------------------
-st.title("🔮 Advanced Stock Predictor (Streamlit Safe)")
-st.write("No TensorFlow | No crashes | Cloud ready 🚀")
+st.title("🔮 Advanced Stock Predictor (Stable & Safe)")
+st.write("Streamlit Cloud Ready | No crashes 🚀")
 
 st.markdown("---")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    ticker = st.text_input("Stock Symbol", "AAPL")   # ✅ FIXED
+    ticker = st.text_input("Stock Symbol", "AAPL")
 
 with col2:
     st.write("Examples: AAPL, TSLA, MSFT, INFY.NS")
@@ -68,21 +44,28 @@ start_date = st.date_input("Start Date", pd.to_datetime("2018-01-01"))
 end_date = st.date_input("End Date", pd.to_datetime("today"))
 
 # -----------------------------
-# SAFE DOWNLOAD
+# SAFE DATA LOADER
 # -----------------------------
 def load_data(ticker):
     for _ in range(3):
         try:
             df = yf.download(ticker, start=start_date, end=end_date, progress=False)
+
             if df is not None and not df.empty:
                 df = df.reset_index()
-                return df
+
+                # ensure clean columns
+                df.columns = [str(c) for c in df.columns]
+
+                return df.dropna()
+
         except:
             time.sleep(2)
+
     return pd.DataFrame()
 
 # -----------------------------
-# MAIN BUTTON
+# MAIN
 # -----------------------------
 if st.button("🔮 Predict Next 7 Days"):
 
@@ -102,6 +85,7 @@ if st.button("🔮 Predict Next 7 Days"):
     delta = data["Close"].diff()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = -delta.clip(upper=0).rolling(14).mean()
+
     rs = gain / loss.replace(0, np.nan)
     data["RSI"] = 100 - (100 / (1 + rs))
 
@@ -113,27 +97,33 @@ if st.button("🔮 Predict Next 7 Days"):
     st.subheader("📊 Current Info")
 
     c1, c2 = st.columns(2)
-    c1.metric("Price", round(data["Close"].iloc[-1], 2))
-    c2.metric("RSI", round(data["RSI"].iloc[-1], 2))
+    c1.metric("Price", round(float(data["Close"].iloc[-1]), 2))
+    c2.metric("RSI", round(float(data["RSI"].iloc[-1]), 2))
 
     # -----------------------------
-    # TREND BASED PREDICTION
+    # TREND PREDICTION
     # -----------------------------
-    last_close = data["Close"].iloc[-1]
-    trend = np.mean(np.diff(data["Close"].tail(10)))
+    last_close = float(data["Close"].iloc[-1])
+
+    trend = float(np.mean(np.diff(data["Close"].tail(10))))
 
     future_prices = []
     price = last_close
 
     for _ in range(PRED_DAYS):
         price += trend
-        future_prices.append(price)
+        future_prices.append(float(price))
 
     # -----------------------------
-    # FUTURE DATES
+    # FUTURE DATES (SAFE)
     # -----------------------------
-    last_date = data["Date"].iloc[-1]
-    dates = pd.date_range(start=last_date + timedelta(days=1), periods=PRED_DAYS, freq="B")
+    last_date = pd.to_datetime(data["Date"].iloc[-1])
+
+    dates = pd.date_range(
+        start=last_date + timedelta(days=1),
+        periods=PRED_DAYS,
+        freq="B"
+    )
 
     pred_df = pd.DataFrame({
         "Date": dates,
@@ -147,9 +137,11 @@ if st.button("🔮 Predict Next 7 Days"):
     st.info(get_sentiment())
 
     # -----------------------------
-    # BUY / SELL
+    # BUY / SELL (SAFE)
     # -----------------------------
-    if pred_df["Close"].mean() > last_close:
+    future_mean = float(np.mean(pred_df["Close"]))
+
+    if future_mean > last_close:
         st.success("📈 BUY Signal")
     else:
         st.error("📉 SELL Signal")
@@ -161,7 +153,7 @@ if st.button("🔮 Predict Next 7 Days"):
     st.download_button("📥 Download Prediction", csv, "prediction.csv")
 
     # -----------------------------
-    # PLOT PREDICTION
+    # PLOT
     # -----------------------------
     st.subheader("📊 Prediction Chart")
 
@@ -191,7 +183,7 @@ if st.button("🔮 Predict Next 7 Days"):
     ax2.legend()
     st.pyplot(fig2)
 
-    st.success("✅ Done Successfully!")
+    st.success("✅ Prediction Completed Successfully!")
 
 else:
     st.info("👆 Enter stock and click Predict")
