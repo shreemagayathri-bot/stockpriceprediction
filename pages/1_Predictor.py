@@ -28,7 +28,7 @@ FEATURES = ["Open", "High", "Low", "Close"]
 
 # ⚠️ SAFE MODEL LOADING (NO TENSORFLOW)
 MODEL_PATH = "model.pkl"      # <-- you must replace or train sklearn model
-SCALER_PATH = "scaler.save"
+SCALER_PATH = "scaler_minmax.save "
 
 # -----------------------------
 # LOAD SCALER ONLY (SAFE)
